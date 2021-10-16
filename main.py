@@ -80,6 +80,8 @@ def run(props, prop):
 
   currentTimer.start_at = datetime.now()
 
+  print(currentTimer)
+
   obs.timer_remove(currentTimer.stopwatch)
   obs.timer_add(currentTimer.stopwatch, 200)
 
@@ -102,6 +104,7 @@ def script_update(settings):
   currentTimer.increment = obs.obs_data_get_int(settings, "increment")
   currentTimer.increment_unit = obs.obs_data_get_int(settings, "increment_unit")
   currentTimer.source = obs.obs_data_get_string(settings, "source")
+  currentTimer.time_format = obs.obs_data_get_int(settings, "timer_format")
   
   duration = obs.obs_data_get_string(settings, "duration")
   try:
