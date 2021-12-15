@@ -1,6 +1,7 @@
+import os
 import obspython as obs
 from enum import IntEnum, auto
-from datetime import datetime, timedelta, tzinfo
+from datetime import datetime, timedelta
 
 class IncrementUnit(IntEnum):
   SECONDS = auto()
@@ -13,7 +14,8 @@ class TimeFormat(IntEnum):
   HOURS = auto()
 
 class Timer:
-  def __init__(self, source: str = "", time_format: TimeFormat = TimeFormat.HOURS, increment: int = 10, increment_unit: IncrementUnit = IncrementUnit.MINUTES, duration: timedelta = 0):
+  def __init__(self, enable:bool = False, source: str = "", time_format: TimeFormat = TimeFormat.HOURS, increment: int = 10, increment_unit: IncrementUnit = IncrementUnit.MINUTES, duration: timedelta = 0):
+      self.enable = enable
       self.source = source
       self.time_format = time_format
       self.increment = increment
@@ -23,7 +25,7 @@ class Timer:
       self.__diff = 0
   
   def __repr__(self):
-    return "<Timer source:%s time_format:%s increment:%s increment_unit:%s duration:%s>" % (self.source, self.time_format, self.increment, self.increment_unit, self.duration)
+    return "<Timer source:%s time_format:%s increment:%s increment_unit:%s duration:%s start_at:%s __diff:%s>" % (self.source, self.time_format, self.increment, self.increment_unit, self.duration, self.start_at, self.__diff)
 
   def __format_time(self):
     sec = int(self.__diff)
@@ -40,12 +42,16 @@ class Timer:
     return switcher.get(self.time_format, "{:02d}:{:02d}:{:02d}".format(hours, mins, sec))
 
   def reset(self):
+    self.enable = False
     self.increment = 10
     self.increment_unit = IncrementUnit.MINUTES
     self.time_format = TimeFormat.SECONDS
     self.__diff = 0
   
   def stopwatch(self):
+    if not self.enable:
+      obs.timer_remove(self.stopwatch)
+      obs.remove_current_callback()
     now = datetime.now()
     source = obs.obs_get_source_by_name(self.source)
     self.__diff = ((self.start_at + self.duration) - now).total_seconds()
@@ -63,6 +69,7 @@ class Timer:
         obs.obs_data_release(settings)
     except UnboundLocalError:
         pass
+    obs.obs_source_release(source)
 
   def postpone(self):
     switcher = {
@@ -76,51 +83,72 @@ print("Reloaded")
 currentTimer = Timer()
 
 def run(props, prop):
+  if os.path.exists(f"{script_path()}\\timer-script.log"):
+    os.remove(f"{script_path()}\\timer-script.log")
+  print("run")
   global currentTimer
 
   currentTimer.start_at = datetime.now()
-
-  print(currentTimer)
+  currentTimer.enable = True
 
   obs.timer_remove(currentTimer.stopwatch)
-  obs.timer_add(currentTimer.stopwatch, 200)
+  obs.timer_add(currentTimer.stopwatch, 990)
 
 def postpone(props, prop):
   global currentTimer
 
   currentTimer.postpone()
 
+def stop(props, prop):
+  print("stop")
+  global currentTimer
+
+  obs.timer_remove(scene_updater)
+  obs.timer_remove(currentTimer.stopwatch)
+
+  currentTimer.reset()
+
 def scene_updater():
   global currentTimer
-  obs.obs_source_release(obs.obs_get_source_by_name(currentTimer.source))
+  label = obs.obs_get_source_by_name(currentTimer.source)
+  obs.obs_source_release(label)
+
+def log(msg):
+  f = open(f"{script_path()}\\timer-script.log", "a")
+  f.write(f"{msg}\n")
+  f.close()
 
 ##############################################################################
 #                                  OBS                                       #
 ##############################################################################
 
+def script_unload():
+  global currentTimer
+  currentTimer.reset()
+  obs.timer_remove(scene_updater)
+  obs.timer_remove(currentTimer.stopwatch)
+  obs.remove_current_callback()
+  del currentTimer
+
 def script_update(settings):
-  print("script_update")
   global currentTimer
   currentTimer.increment = obs.obs_data_get_int(settings, "increment")
   currentTimer.increment_unit = obs.obs_data_get_int(settings, "increment_unit")
   currentTimer.source = obs.obs_data_get_string(settings, "source")
   currentTimer.time_format = obs.obs_data_get_int(settings, "timer_format")
   
-  duration = obs.obs_data_get_string(settings, "duration")
-  try:
-    date_time = datetime.strptime(duration, "%H:%M")
-    currentTimer.duration = date_time - datetime(1900, 1, 1)
-  except Exception as err:
-    obs.script_log(obs.LOG_WARNING, "Error parsing initial time" + err.reason)
-    obs.remove_current_callback()
+  if not currentTimer.enable:
+    duration = obs.obs_data_get_string(settings, "duration")
+    try:
+      date_time = datetime.strptime(duration, "%H:%M")
+      currentTimer.duration = date_time - datetime(1900, 1, 1)
+    except Exception as err:
+      obs.script_log(obs.LOG_WARNING, "Error parsing initial time" + err.reason)
+      obs.remove_current_callback()
 
   obs.timer_remove(scene_updater)
   if currentTimer.source != "":
     obs.timer_add(scene_updater, 1000)
-
-def script_unload():
-  obs.timer_remove(currentTimer.stopwatch)
-  obs.timer_remove(scene_updater)
 
 def script_defaults(settings):
   print("default")
@@ -133,8 +161,8 @@ def script_defaults(settings):
 
   currentTimer.reset()
 
-def script_description():
-  return "aaaaaa"
+# def script_description():
+#   return "aaaaaa"
 
 def script_properties():
   props = obs.obs_properties_create()
@@ -169,8 +197,10 @@ def script_properties():
 
   obs.obs_properties_add_text(props, "duration", "Duration (HH:MM):", obs.OBS_TEXT_DEFAULT)
 
-  obs.obs_properties_add_button(props, "run", "Run/Restart Timer", run)
+  obs.obs_properties_add_button(props, "run", "Run/Restart timer", run)
 
-  obs.obs_properties_add_button(props, "btn_increment", "increment", postpone)
+  obs.obs_properties_add_button(props, "btn_increment", " Increment timer  ", postpone)
+
+  obs.obs_properties_add_button(props, "stop", "      Stop timer      ", stop)
 
   return props
